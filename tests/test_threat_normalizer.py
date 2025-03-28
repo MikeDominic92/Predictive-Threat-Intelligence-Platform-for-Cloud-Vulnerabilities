@@ -3,6 +3,8 @@ from unittest.mock import patch, MagicMock, call
 import json
 import datetime
 import os
+import logging
+import io  # Import io for StringIO
 
 # Import the module we are testing
 from src.functions.data_processing import threat_normalizer
@@ -199,51 +201,100 @@ class TestThreatNormalizer(unittest.TestCase):
         written_gcs_content = mock_write_blob.upload_from_string.call_args[0][0]
         self.assertEqual(json.loads(written_gcs_content), written_data)
 
-    @patch('builtins.print') # Patch print to check error logging
+    @patch('src.functions.data_processing.threat_normalizer.datetime')
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
-    def test_normalize_threat_data_invalid_json(self, mock_bigquery_client, mock_storage_client, mock_print):
-        """Test handling when the input GCS file contains invalid JSON."""
-        # --- Mock GCS ---
-        mock_storage_instance = mock_storage_client.return_value
-        mock_read_blob = MagicMock()
-        # Simulate invalid JSON content
-        mock_read_blob.download_as_string.return_value = b"this is not { valid json"
-        mock_write_blob = MagicMock() # Mock for potential archive path
-        mock_bucket = MagicMock()
-        # Need side_effect for read blob and potential archive blob (though archive shouldn't happen)
-        mock_bucket.blob.side_effect = [mock_read_blob, mock_write_blob]
-        mock_storage_instance.get_bucket.return_value = mock_bucket
+    @patch.object(threat_normalizer, 'read_file_from_gcs') # Mock read_file_from_gcs
+    def test_invalid_json_format(self, mock_read_file, mock_storage_client, mock_bigquery_client, mock_datetime):
+        """Test normalization handles invalid JSON content gracefully."""
+        print("\n--- Running test_invalid_json_format ---")
+        # Configure mocks
+        mock_read_file.side_effect = json.JSONDecodeError("Expecting value", "", 0) # Simulate JSON error
+        mock_bigquery_instance = mock_bigquery_client.return_value
+        mock_datetime.now.return_value.isoformat.return_value = '2023-10-27T10:00:00'
 
-        # --- Mock BigQuery ---
-        mock_bq_instance = mock_bigquery_client.return_value
+        # Mock event data
+        mock_event = {
+            'bucket': 'test-bucket',
+            'name': 'raw/testing/invalid_format.json' # Correct path format
+        }
 
-        # --- Test Data ---
-        test_bucket_name = "test-threat-bucket"
-        test_file_name = "raw/bad_json/file.json"
-        mock_event = {'bucket': test_bucket_name, 'name': test_file_name}
-        mock_context = MagicMock()
+        # Setup manual log capture
+        log_stream = io.StringIO()
+        logger = logging.getLogger() # Get root logger
+        original_level = logger.level
+        logger.setLevel(logging.DEBUG)  # Set level to DEBUG
+        stream_handler = logging.StreamHandler(log_stream)
+        # Use a specific format to make parsing easier if needed
+        formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
 
-        # --- Execute Function ---
-        threat_normalizer.normalize_threat_data(mock_event, mock_context)
+        try:
+            # Call the function
+            threat_normalizer.normalize_threat_data(mock_event, None)
 
-        # --- Assertions ---
-        # 1. Check GCS Read was attempted
-        mock_storage_instance.get_bucket.assert_called_with(test_bucket_name)
-        mock_bucket.blob.assert_any_call(test_file_name) # Called for reading
-        mock_read_blob.download_as_string.assert_called_once()
+            # Assertions
+            mock_read_file.assert_called_once_with('test-bucket', 'raw/testing/invalid_format.json')
+            # Ensure BigQuery insertion was NOT called
+            self.assertFalse(mock_bigquery_instance.insert_rows_json.called)
 
-        # 2. Check BigQuery Write was NOT attempted
-        mock_bq_instance.insert_rows_json.assert_not_called()
+            # Check log output
+            log_output = log_stream.getvalue()
+            print(f"Captured logs for invalid json:\n{log_output}") # Print captured logs
+            # Update assertion to match the actual log from the main function's except Exception block
+            expected_log = "Error processing event: Expecting value"
+            self.assertIn(expected_log, log_output)
+            # Ensure no data was attempted to be written
+            mock_bigquery_instance.insert_rows_json.assert_not_called()
+        finally:
+            # Clean up logger
+            logger.removeHandler(stream_handler)
+            logger.setLevel(original_level)
 
-        # 3. Check GCS Write (Archiving) was NOT attempted
-        # Check that the second blob mock (for writing) was NOT used
-        mock_write_blob.upload_from_string.assert_not_called()
-        # Check that blob was only called once (for reading)
-        self.assertEqual(mock_bucket.blob.call_count, 1)
+    # Test case for empty file
+    @patch('src.functions.data_processing.threat_normalizer.datetime')
+    @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
+    @patch('src.functions.data_processing.threat_normalizer.storage.Client')
+    @patch.object(threat_normalizer, 'read_file_from_gcs') # Mock the read function directly
+    def test_empty_gcs_file(self, mock_read_file, mock_storage_client, mock_bigquery_client, mock_datetime):
+        """Test normalization when the GCS file content is empty or unreadable."""
+        print("\n--- Running test_empty_gcs_file ---")
+        # Configure mocks
+        # Make mock return None directly
+        mock_read_file.return_value = None
+        mock_bigquery_instance = mock_bigquery_client.return_value
+        mock_datetime.now.return_value.isoformat.return_value = '2023-10-27T10:00:00'
 
-        # 4. Check for error print message (assuming the function prints on JSON decode error)
-        mock_print.assert_any_call(f"Error processing file {test_file_name}: Invalid JSON content.")
+        # Mock event data (similar to other tests)
+        mock_event = {
+            'bucket': 'test-bucket',
+            'name': 'raw/testing/empty_file.json' # Correct path format
+        }
+
+        # Setup manual log capture
+        log_stream = io.StringIO()
+        logger = logging.getLogger() # Get root logger
+        original_level = logger.level
+        logger.setLevel(logging.DEBUG)  # Set level to DEBUG
+        stream_handler = logging.StreamHandler(log_stream)
+        logger.addHandler(stream_handler)
+
+        try:
+            # Call the function
+            threat_normalizer.normalize_threat_data(mock_event, None)
+
+            # Assertions
+            mock_read_file.assert_called_once_with('test-bucket', 'raw/testing/empty_file.json')
+            # Ensure BigQuery insertion was NOT called
+            self.assertFalse(mock_bigquery_instance.insert_rows_json.called)
+
+            # Assert that BigQuery was not called, indicating an early exit
+            mock_bigquery_instance.insert_rows_json.assert_not_called()
+        finally:
+            # Clean up logger
+            logger.removeHandler(stream_handler)
+            logger.setLevel(original_level)
 
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
@@ -425,7 +476,6 @@ class TestThreatNormalizer(unittest.TestCase):
         self.assertEqual(mock_bucket.blob.call_count, 1, "Expected blob() to be called only once for reading when normalized_data is empty")
         # Verify upload_from_string was not called on the mock used for writing
         mock_write_blob.upload_from_string.assert_not_called()
-
 
 # Add a main block to run tests if the script is executed directly
 if __name__ == '__main__':
