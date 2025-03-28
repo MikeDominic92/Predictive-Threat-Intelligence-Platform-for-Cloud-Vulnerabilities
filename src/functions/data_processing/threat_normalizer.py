@@ -1,20 +1,16 @@
 import os
 import base64
 import json
-import datetime
-from google.cloud import storage
-from google.cloud import bigquery
-import pandas as pd
-import numpy as np
 import logging
+from dotenv import load_dotenv
+from dotenv import find_dotenv
+
+# Import local modules
+from . import utils
+from .normalizers import alienvault, virustotal
 
 # Configure logging
 logging.basicConfig(level=logging.INFO) # Set default log level
-
-# BigQuery dataset and table for normalized data
-PROJECT_ID = os.environ.get("PROJECT_ID", "predictive-threat-intelligence")
-DATASET_ID = os.environ.get("DATASET_ID", "threat_intelligence")
-TABLE_ID = os.environ.get("TABLE_ID", "normalized_threats")
 
 def normalize_threat_data(event, context):
     """Cloud Function to normalize threat data when new data is added to the bucket.
@@ -24,25 +20,38 @@ def normalize_threat_data(event, context):
         context: Metadata for the event
     """
     try:
+        # Load configuration once
+        project_id = os.environ.get("PROJECT_ID")
+        dataset_id = os.environ.get("DATASET_ID")
+        table_id = os.environ.get("TABLE_ID")
         bucket_name = event['bucket']
+
+        if not all([project_id, dataset_id, table_id]):
+            logging.error("Missing required environment variables (PROJECT_ID, DATASET_ID, TABLE_ID)")
+            return # Or raise an exception
+
         file_name = event['name']
         logging.info(f"Processing {file_name} from bucket {bucket_name}")
 
         # Only process raw data files
-        if not file_name.startswith('raw/'):
+        if not file_name.startswith('raw/') or 'placeholder' in file_name:
+            logging.info(f"Skipping non-raw or placeholder file: {file_name}")
             return
         
         # Parse source from file path
         path_parts = file_name.split('/')
-        if len(path_parts) < 3:
+        # Expecting format: raw/<source>/<filename>
+        if len(path_parts) < 3 or path_parts[0] != 'raw':
+            logging.warning(f"Skipping file with unexpected path format: {file_name}")
             return
-        
-        source = path_parts[1]  # e.g., 'alienvault', 'virustotal'
-        
+
+        source = path_parts[1].lower() # e.g., 'alienvault', 'virustotal'
+
         logging.info(f"Processing {source} data from {file_name}")
-        
+        logging.info(f"Attempting to read from GCS: gs://{bucket_name}/{file_name}") # Added logging
+
         # Get the file content
-        content = read_file_from_gcs(bucket_name, file_name)
+        content = utils.read_file_from_gcs(bucket_name, file_name)
         if content is None:
             logging.error(f"Failed to read file: {bucket_name}/{file_name}")
             return
@@ -52,223 +61,35 @@ def normalize_threat_data(event, context):
 
         if source == 'alienvault':
             logging.info(f"Calling normalize_alienvault_data for {file_name}")
-            normalized_data = normalize_alienvault_data(content)
+            normalized_data = alienvault.normalize_alienvault_data(content)
+            logging.info(f"Normalization resulted in {len(normalized_data)} items.") # Added logging
         elif source == 'virustotal':
             logging.info(f"Calling normalize_virustotal_data for {file_name}")
-            normalized_data = normalize_virustotal_data(content)
+            # Wrap the single report dictionary into a list for the normalizer
+            normalized_data = virustotal.normalize_virustotal_data([content])
+            logging.info(f"Normalization resulted in {len(normalized_data)} items.") # Added logging
         else:
             logging.warning(f"Unknown data source type: {source}")
 
         if normalized_data:
-            logging.info(f"Calling write_to_bigquery for {file_name}")
-            write_to_bigquery(normalized_data, source) # Pass source argument
-            
-            # Also save normalized version to Cloud Storage for archiving
-            logging.info(f"Calling save_normalized_to_gcs for {file_name}")
-            save_normalized_to_gcs(bucket_name, file_name, normalized_data)
-            
+            logging.info(f"Attempting to write {len(normalized_data)} items to BigQuery (Source: {source}).") # Added logging
+            bq_success = utils.write_to_bigquery(normalized_data, source, project_id, dataset_id, table_id)
+            logging.info(f"Finished BigQuery write attempt for {file_name}.") # Log regardless of success
+
+            # Attempt to save normalized data back to GCS
+            if bq_success: # Optionally only save if BQ write succeeded, or save regardless
+                logging.info(f"Attempting to save normalized data to GCS for {file_name}.")
+                utils.save_normalized_to_gcs(bucket_name, file_name, normalized_data)
+                logging.info(f"Finished GCS save attempt for {file_name}.")
+            else:
+                logging.warning(f"Skipping GCS save for {file_name} because BigQuery write failed.")
+
             logging.info(f"Processed {len(normalized_data)} threat indicators from {source}")
+            return bq_success # Return the success status of the BigQuery write
         else:
-            logging.info(f"No threat indicators found in {file_name}")
+            logging.info(f"No threat indicators found or normalized in {file_name}")
     except Exception as e:
-        logging.error(f"Error processing event: {str(e)}")
-
-def read_file_from_gcs(bucket_name, file_name):
-    """Read a file from Google Cloud Storage."""
-    try:
-        storage_client = storage.Client()
-        bucket = storage_client.get_bucket(bucket_name)
-        blob = bucket.blob(file_name)
-
-        # Check if the blob exists before trying to download
-        if blob.exists():
-            content = blob.download_as_string()
-            return json.loads(content)
-        else:
-            logging.error(f"File not found in GCS: gs://{bucket_name}/{file_name}")
-            return None
-            
-    except json.JSONDecodeError:
-        logging.error(f"Error processing file {file_name}: Invalid JSON content.")
-        return None
-    except Exception as e:
-        logging.error(f"Error reading from GCS: {str(e)}")
-        return None
-
-def normalize_alienvault_data(data):
-    """Normalize AlienVault OTX data to standard format."""
-    # Add check for None input
-    if data is None:
-        logging.warning("normalize_alienvault_data called with None input.")
-        return []
-    normalized = []
-    try:
-        pulses = data.get("pulses", [])
-        
-        for pulse in pulses:
-            pulse_id = pulse.get("id")
-            pulse_name = pulse.get("name")
-            pulse_description = pulse.get("description")
-            pulse_tags = pulse.get("tags", [])
-            created = pulse.get("created")
-            
-            for indicator in pulse.get("indicators", []):
-                normalized.append({
-                    "source": "alienvault",
-                    "type": indicator.get("type"),
-                    "value": indicator.get("indicator"),
-                    "threat_type": "indicator",
-                    "confidence_score": calculate_confidence(pulse, indicator),
-                    "severity": calculate_severity(pulse, indicator),
-                    "description": pulse_description,
-                    "tags": pulse_tags,
-                    "pulse_id": pulse_id,
-                    "pulse_name": pulse_name,
-                    "created": created,
-                    "processed_at": datetime.datetime.now().isoformat()
-                })
-        
-        return normalized
-    except Exception as e:
-        logging.error(f"Error normalizing AlienVault data: {str(e)}")
-        return []
-
-def normalize_virustotal_data(data):
-    """Normalize VirusTotal data to standard format."""
-    # Add check for None input
-    if data is None:
-        logging.warning("normalize_virustotal_data called with None input.")
-        return []
-    normalized = []
-    try:
-        files = data.get("files", [])
-        
-        for file in files:
-            attributes = file.get("attributes", {})
-            normalized.append({
-                "source": "virustotal",
-                "type": "file",
-                "value": file.get("id", ""),
-                "threat_type": "malware",
-                "confidence_score": calculate_vt_confidence(attributes),
-                "severity": calculate_vt_severity(attributes),
-                "description": attributes.get("meaningful_name", "Unknown malware"),
-                "tags": extract_vt_tags(attributes),
-                "file_type": attributes.get("type_tag", ""),
-                "sha256": attributes.get("sha256", ""),
-                "created": attributes.get("creation_date", ""),
-                "processed_at": datetime.datetime.now().isoformat()
-            })
-        
-        return normalized
-    except Exception as e:
-        logging.error(f"Error normalizing VirusTotal data: {str(e)}")
-        return []
-
-def calculate_confidence(pulse, indicator):
-    """Calculate confidence score for AlienVault indicator."""
-    # Example implementation - would be more sophisticated in production
-    base_score = 0.5  # Start with neutral confidence
-    
-    # Adjust based on pulse factors
-    if pulse.get("adversary"):
-        base_score += 0.1
-    if len(pulse.get("tags", [])) > 3:
-        base_score += 0.1
-    
-    return min(base_score, 1.0)  # Cap at 1.0
-
-def calculate_severity(pulse, indicator):
-    """Calculate severity score for AlienVault indicator."""
-    # Example implementation - would be more sophisticated in production
-    # Look for known high-severity tags
-    tags = pulse.get("tags", [])
-    high_severity_tags = ["ransomware", "exploit", "zero-day", "apt"]
-    
-    if any(tag.lower() in high_severity_tags for tag in tags):
-        return "high"
-    elif len(tags) > 5:  # More context generally indicates higher severity
-        return "medium"
-    else:
-        return "low"
-
-def calculate_vt_confidence(attributes):
-    """Calculate confidence score for VirusTotal data."""
-    # Example implementation - would be more sophisticated in production
-    detection_ratio = attributes.get("last_analysis_stats", {}).get("malicious", 0) / \
-                     max(1, sum(attributes.get("last_analysis_stats", {}).values()))
-    
-    return min(detection_ratio, 1.0)
-
-def calculate_vt_severity(attributes):
-    """Calculate severity score for VirusTotal data."""
-    # Example implementation - would be more sophisticated in production
-    malicious_engines = attributes.get("last_analysis_stats", {}).get("malicious", 0)
-    
-    if malicious_engines > 20:
-        return "high"
-    elif malicious_engines > 5:
-        return "medium"
-    else:
-        return "low"
-
-def extract_vt_tags(attributes):
-    """Extract meaningful tags from VirusTotal attributes."""
-    tags = []
-    
-    # Add file type
-    if "type_tag" in attributes:
-        tags.append(attributes["type_tag"])
-    
-    # Add detection names (limit to avoid too many tags)
-    for engine, result in list(attributes.get("last_analysis_results", {}).items())[:5]:
-        if result.get("category") == "malicious" and "result" in result:
-            tags.append(result["result"])
-    
-    return list(set(tags))  # Remove duplicates
-
-def write_to_bigquery(normalized_data, source):
-    """Write normalized data to BigQuery."""
-    try:
-        client = bigquery.Client()
-        table_id = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
-        
-        # Load data into BigQuery
-        errors = client.insert_rows_json(table_id, normalized_data)
-        
-        if errors:
-            logging.error(f"Errors inserting rows to BigQuery: {errors}")
-        else:
-            logging.info(f"Successfully inserted {len(normalized_data)} rows to {table_id} from {source}")
-    
-    except Exception as e:
-        logging.error(f"Error writing to BigQuery: {str(e)}")
-
-def save_normalized_to_gcs(bucket_name, raw_file_name, normalized_data):
-    """Save normalized data back to GCS for archiving."""
-    try:
-        normalized_file_name = raw_file_name.replace('raw/', 'normalized/')
-        
-        storage_client = storage.Client()
-        bucket = storage_client.get_bucket(bucket_name)
-        blob = bucket.blob(normalized_file_name)
-        
-        blob.upload_from_string(
-            json.dumps(normalized_data, indent=2),
-            content_type='application/json'
-        )
-        
-        logging.info(f"Saved normalized data to gs://{bucket_name}/{normalized_file_name}")
-    
-    except Exception as e:
-        logging.error(f"Error saving normalized data to GCS: {str(e)}")
-
-# For local testing
-if __name__ == "__main__":
-    # Simulate a GCS event
-    event = {
-        'bucket': 'predictive-threat-intelligence-threat-intel-raw',
-        'name': 'raw/alienvault/20230415_120000.json'
-    }
-    context = {}
-    normalize_threat_data(event, context)
+        logging.error(f"Error processing GCS event for file {file_name}: {e}", exc_info=True)
+        # Decide if you want to raise the exception or return a failure indicator
+        # raise e # Option 1: Propagate the error
+        return False # Option 2: Indicate failure without stopping potential further processing
