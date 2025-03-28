@@ -7,7 +7,9 @@ from google.cloud import storage
 from dotenv import load_dotenv
 
 # Load environment variables from .env file for local development
-load_dotenv()
+# Explicitly load .env.local, searching upwards from the current file directory
+# Use override=True if you want .env.local to take precedence over system env vars
+load_dotenv(dotenv_path='.env.local', verbose=True) # Added dotenv_path and verbose for debugging
 
 # Configuration (ideally from environment variables)
 OTX_API_KEY = os.environ.get("OTX_API_KEY")
