@@ -4,6 +4,7 @@ import datetime
 import requests
 import feedparser
 from google.cloud import storage
+import base64
 
 # API keys should be stored in environment variables or Secret Manager in production
 ALIENVAULT_API_KEY = os.environ.get("ALIENVAULT_API_KEY", "")
@@ -68,27 +69,32 @@ def collect_from_alienvault():
         return {"error": str(e)}
 
 def collect_from_virustotal():
-    """Collect threat intelligence from VirusTotal."""
-    # Example implementation - this would be expanded in a real system
+    """Collect threat intelligence from VirusTotal by fetching a specific file report."""
+    # Example implementation - using the EICAR test file hash
+    # In a real system, you might fetch reports for hashes found in other feeds
+    test_hash = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
     try:
-        # VirusTotal API for recent malicious files
-        url = "https://www.virustotal.com/api/v3/intelligence/hunting_notification_files"
+        # VirusTotal API V3 for file reports
+        url = f"https://www.virustotal.com/api/v3/files/{test_hash}"
         headers = {"x-apikey": VIRUSTOTAL_API_KEY}
-        
+
         response = requests.get(url, headers=headers)
-        
+
         if response.status_code == 200:
             data = response.json()
-            # Process and return relevant data
+            # Process and return relevant data (e.g., the attributes of the file report)
             return {
-                "files": data.get("data", []),
-                "count": len(data.get("data", [])),
+                "report": data.get("data", {}).get("attributes", {}),
+                "hash": test_hash,
                 "timestamp": datetime.datetime.now().isoformat()
             }
+        elif response.status_code == 404:
+            print(f"VirusTotal: Hash {test_hash} not found.")
+            return {"error": f"Hash {test_hash} not found", "status_code": 404}
         else:
-            print(f"Error collecting from VirusTotal: {response.status_code}")
-            return {"error": f"Status code: {response.status_code}"}
-    
+            print(f"Error collecting from VirusTotal: {response.status_code} - {response.text}")
+            return {"error": f"Status code: {response.status_code}", "details": response.text}
+
     except Exception as e:
         print(f"Exception collecting from VirusTotal: {str(e)}")
         return {"error": str(e)}
