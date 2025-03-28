@@ -1,6 +1,6 @@
 # Predictive Threat Intelligence Platform for Cloud Vulnerabilities
 
-I'm excited to share this project with you, which aims to create a proactive threat intelligence platform for cloud environments. My goal is to move beyond just reacting to security issues and explore ways to predict emerging threats before they hit.
+This project which aims to create a proactive threat intelligence platform for cloud environments. My goal is to move beyond just reacting to security issues and explore ways to predict emerging threats before they hit.
 
 ## Project Vision
 
