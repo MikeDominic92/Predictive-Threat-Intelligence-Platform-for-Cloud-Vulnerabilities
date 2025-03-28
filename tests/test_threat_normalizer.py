@@ -71,8 +71,6 @@ class TestThreatNormalizer(unittest.TestCase):
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
     def test_normalize_threat_data_alienvault_success(self, mock_bigquery_client, mock_storage_client, mock_datetime):
         """Test successful normalization of an AlienVault file."""
-        print("\nRunning test_normalize_threat_data_alienvault_success...")
-
         # Configure the datetime mock
         mock_datetime.datetime.now.return_value = FIXED_DATETIME
 
@@ -126,15 +124,11 @@ class TestThreatNormalizer(unittest.TestCase):
         written_gcs_content = mock_write_blob.upload_from_string.call_args[0][0]
         self.assertEqual(json.loads(written_gcs_content), written_data)
 
-        print("test_normalize_threat_data_alienvault_success finished.")
-
     @patch('src.functions.data_processing.threat_normalizer.datetime')
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
     def test_normalize_threat_data_virustotal_success(self, mock_bigquery_client, mock_storage_client, mock_datetime):
         """Test successful normalization of a VirusTotal file."""
-        print("\nRunning test_normalize_threat_data_virustotal_success...")
-
         # Configure the datetime mock
         mock_datetime.datetime.now.return_value = FIXED_DATETIME
 
@@ -197,14 +191,10 @@ class TestThreatNormalizer(unittest.TestCase):
         written_gcs_content = mock_write_blob.upload_from_string.call_args[0][0]
         self.assertEqual(json.loads(written_gcs_content), written_data)
 
-        print("test_normalize_threat_data_virustotal_success finished.")
-
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
     def test_normalize_threat_data_file_not_found(self, mock_bigquery_client, mock_storage_client):
         """Test handling when the input GCS file does not exist."""
-        print("\nRunning test_normalize_threat_data_file_not_found...")
-
         # --- Mock GCS ---
         mock_storage_instance = mock_storage_client.return_value
         mock_read_blob = MagicMock()
@@ -249,14 +239,10 @@ class TestThreatNormalizer(unittest.TestCase):
         # Assuming blob() is called only once for the non-existent file:
         mock_read_blob.upload_from_string.assert_not_called()
 
-        print("test_normalize_threat_data_file_not_found finished.")
-
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
     def test_normalize_threat_data_invalid_json(self, mock_bigquery_client, mock_storage_client):
         """Test handling when the input GCS file contains invalid JSON."""
-        print("\nRunning test_normalize_threat_data_invalid_json...")
-
         # --- Mock GCS ---
         mock_storage_instance = mock_storage_client.return_value
         mock_read_blob = MagicMock()
@@ -310,15 +296,11 @@ class TestThreatNormalizer(unittest.TestCase):
         self.assertEqual(mock_bucket.blob.call_count, 1, "Expected blob() to be called only once for reading when JSON is invalid.")
         # If blob() was only called once, upload_from_string was definitely not called on an archive blob.
 
-        print("test_normalize_threat_data_invalid_json finished.")
-
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
     @patch('src.functions.data_processing.threat_normalizer.datetime')
     def test_normalize_threat_data_missing_fields(self, mock_datetime, mock_bigquery_client, mock_storage_client):
         """Test handling when input JSON is valid but missing expected fields (e.g., AlienVault indicators)."""
-        print("\nRunning test_normalize_threat_data_missing_fields...")
-        
         # --- Mock datetime ---
         mock_now = datetime.datetime(2024, 1, 1, 12, 0, 0)
         mock_datetime.datetime.now.return_value = mock_now
@@ -389,8 +371,6 @@ class TestThreatNormalizer(unittest.TestCase):
         self.assertEqual(mock_bucket.blob.call_count, 1, "Expected blob() to be called only once for reading when normalized_data is empty")
         # Verify upload_from_string was not called on the mock used for writing
         mock_write_blob.upload_from_string.assert_not_called()
-
-        print("test_normalize_threat_data_missing_fields finished.")
 
 
 # Add a main block to run tests if the script is executed directly

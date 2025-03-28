@@ -25,13 +25,11 @@ def normalize_threat_data(event, context):
     
     # Only process raw data files
     if not file_name.startswith('raw/'):
-        print(f"Skipping non-raw file: {file_name}")
         return
     
     # Parse source from file path
     path_parts = file_name.split('/')
     if len(path_parts) < 3:
-        print(f"Invalid file path format: {file_name}")
         return
     
     source = path_parts[1]  # e.g., 'alienvault', 'virustotal'
