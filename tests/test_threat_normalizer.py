@@ -260,6 +260,7 @@ class TestThreatNormalizer(unittest.TestCase):
         # --- Mock GCS ---
         mock_storage_instance = mock_storage_client.return_value
         mock_read_blob = MagicMock()
+        mock_write_blob = MagicMock()
         mock_read_blob.exists.return_value = True # File exists
         # Simulate reading invalid JSON content
         mock_read_blob.download_as_string.return_value = b"this is not valid json" 
@@ -311,14 +312,87 @@ class TestThreatNormalizer(unittest.TestCase):
 
         print("test_normalize_threat_data_invalid_json finished.")
 
-    # TODO: Add more tests:
-    # - test_normalize_threat_data_skip_non_raw
-    # - test_normalize_threat_data_invalid_path
-    # - test_normalize_threat_data_gcs_read_error
-    # - test_normalize_threat_data_bq_write_error (if applicable)
-    # - test_normalize_threat_data_gcs_write_error (if applicable)
-    # - test_*_data_structure (for more granular checks)
+    @patch('src.functions.data_processing.threat_normalizer.storage.Client')
+    @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
+    @patch('src.functions.data_processing.threat_normalizer.datetime')
+    def test_normalize_threat_data_missing_fields(self, mock_datetime, mock_bigquery_client, mock_storage_client):
+        """Test handling when input JSON is valid but missing expected fields (e.g., AlienVault indicators)."""
+        print("\nRunning test_normalize_threat_data_missing_fields...")
+        
+        # --- Mock datetime ---
+        mock_now = datetime.datetime(2024, 1, 1, 12, 0, 0)
+        mock_datetime.datetime.now.return_value = mock_now
+
+        # --- Mock GCS ---
+        mock_storage_instance = mock_storage_client.return_value
+        mock_read_blob = MagicMock()
+        mock_write_blob = MagicMock()
+        mock_read_blob.exists.return_value = True
+
+        # Sample AlienVault data *missing* the 'indicators' key
+        sample_av_data_missing_indicators = {
+            "pulses": [
+                {
+                    "id": "65a7f4d7b38e633a7428a4e6",
+                    "name": "Test Pulse - Missing Indicators",
+                    "description": "A pulse without an indicators list.",
+                    "tags": ["test", "missing_data"],
+                    "created": "2024-01-17T17:30:31.123Z",
+                    # "indicators": []  <-- Key missing
+                }
+            ]
+        }
+        mock_read_blob.download_as_string.return_value = json.dumps(sample_av_data_missing_indicators).encode('utf-8')
+
+        def blob_side_effect(blob_name):
+            if blob_name == "raw/alienvault/missing_indicators.json":
+                return mock_read_blob
+            elif blob_name.startswith("processed/") or blob_name.startswith("normalized/"): # Adjust path as needed
+                return mock_write_blob
+            return MagicMock() # Default mock for any other blob calls
+
+        mock_bucket = MagicMock()
+        mock_bucket.blob.side_effect = blob_side_effect
+        mock_storage_instance.get_bucket.return_value = mock_bucket
+
+        # --- Mock BigQuery ---
+        mock_bq_instance = mock_bigquery_client.return_value
+        # We expect insert_rows_json *might* be called with an empty list, or not at all if processing yields nothing
+        mock_bq_instance.insert_rows_json.return_value = [] # Simulate success (no errors)
+
+        # --- Test Data ---
+        test_bucket_name = "test-threat-bucket"
+        test_file_name = "raw/alienvault/missing_indicators.json"
+        mock_event = {'bucket': test_bucket_name, 'name': test_file_name}
+        mock_context = MagicMock()
+
+        # --- Execute Function ---
+        try:
+            threat_normalizer.normalize_threat_data(mock_event, mock_context)
+        except Exception as e:
+            self.fail(f"normalize_threat_data raised an unexpected exception: {e}")
+
+        # --- Assertions ---
+        # 1. Check GCS Read calls
+        mock_storage_instance.get_bucket.assert_called_with(test_bucket_name)
+        mock_bucket.blob.assert_any_call(test_file_name) # Check read blob was requested
+        mock_read_blob.exists.assert_called_once()
+        mock_read_blob.download_as_string.assert_called_once()
+
+        # 2. Check BigQuery 
+        # Updated Assertion: Expect BQ insert NOT to be called if normalized_data is empty
+        mock_bq_instance.insert_rows_json.assert_not_called()
+        
+        # 3. Check GCS Write (Archiving)
+        # Updated Assertion: Archiving should be skipped if normalized_data is empty
+        # Verify blob() was only called once (for the read)
+        self.assertEqual(mock_bucket.blob.call_count, 1, "Expected blob() to be called only once for reading when normalized_data is empty")
+        # Verify upload_from_string was not called on the mock used for writing
+        mock_write_blob.upload_from_string.assert_not_called()
+
+        print("test_normalize_threat_data_missing_fields finished.")
 
 
+# Add a main block to run tests if the script is executed directly
 if __name__ == '__main__':
     unittest.main()
