@@ -199,6 +199,58 @@ class TestThreatNormalizer(unittest.TestCase):
 
         print("test_normalize_threat_data_virustotal_success finished.")
 
+    @patch('src.functions.data_processing.threat_normalizer.storage.Client')
+    @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
+    def test_normalize_threat_data_file_not_found(self, mock_bigquery_client, mock_storage_client):
+        """Test handling when the input GCS file does not exist."""
+        print("\nRunning test_normalize_threat_data_file_not_found...")
+
+        # --- Mock GCS ---
+        mock_storage_instance = mock_storage_client.return_value
+        mock_read_blob = MagicMock()
+        # Simulate file not found: make exists() return False
+        mock_read_blob.exists.return_value = False 
+        mock_bucket = MagicMock()
+        # When bucket.blob is called for the input file, return the mock that doesn't exist
+        mock_bucket.blob.return_value = mock_read_blob 
+        mock_storage_instance.get_bucket.return_value = mock_bucket
+
+        # --- Mock BigQuery (should not be called) ---
+        mock_bq_instance = mock_bigquery_client.return_value
+
+        # --- Test Data ---
+        test_bucket_name = "test-threat-bucket"
+        test_file_name = "raw/nonexistent/file.json"
+        mock_event = {'bucket': test_bucket_name, 'name': test_file_name}
+        mock_context = MagicMock()
+
+        # --- Execute Function ---
+        # We expect this might log an error but not raise one
+        # If the function raises an unhandled exception, the test will fail here
+        try:
+            threat_normalizer.normalize_threat_data(mock_event, mock_context)
+        except Exception as e:
+            self.fail(f"normalize_threat_data raised an unexpected exception: {e}")
+
+        # --- Assertions ---
+        # 1. Check GCS calls
+        mock_storage_instance.get_bucket.assert_called_with(test_bucket_name)
+        mock_bucket.blob.assert_called_with(test_file_name)
+        mock_read_blob.exists.assert_called_once() # Verify we checked existence
+        # Crucially, download_as_string should NOT have been called
+        mock_read_blob.download_as_string.assert_not_called()
+
+        # 2. Check BigQuery (should NOT be called)
+        mock_bq_instance.insert_rows_json.assert_not_called()
+
+        # 3. Check GCS Write (Archiving should NOT happen if read failed)
+        # Need to refine this if we used side_effect previously. 
+        # If blob() was only called once, we can check upload_from_string on that single blob mock.
+        # Assuming blob() is called only once for the non-existent file:
+        mock_read_blob.upload_from_string.assert_not_called()
+
+        print("test_normalize_threat_data_file_not_found finished.")
+
     # TODO: Add more tests:
     # - test_normalize_threat_data_skip_non_raw
     # - test_normalize_threat_data_invalid_path

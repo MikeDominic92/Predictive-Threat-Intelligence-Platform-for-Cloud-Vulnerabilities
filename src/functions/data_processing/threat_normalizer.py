@@ -69,8 +69,15 @@ def read_file_from_gcs(bucket_name, file_name):
         storage_client = storage.Client()
         bucket = storage_client.get_bucket(bucket_name)
         blob = bucket.blob(file_name)
-        content = blob.download_as_string()
-        return json.loads(content)
+
+        # Check if the blob exists before trying to download
+        if blob.exists():
+            content = blob.download_as_string()
+            return json.loads(content)
+        else:
+            print(f"File not found in GCS: gs://{bucket_name}/{file_name}")
+            return None
+            
     except Exception as e:
         print(f"Error reading from GCS: {str(e)}")
         return None
