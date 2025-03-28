@@ -26,6 +26,11 @@ The platform design includes these main parts:
 ### Data Ingestion Layer
 This layer will collect data from various threat intelligence sources, including open-source feeds (like AlienVault OTX, VirusTotal), vendor security advisories, research papers, and security blogs.
 
+**Implementation:** The initial data collection is handled by the `osint_collector` Google Cloud Function (`src/functions/osint_collector`), which currently gathers:
+  - Pulses from AlienVault OTX.
+  - IP Address reports from VirusTotal.
+Data is saved in JSON format to Google Cloud Storage (`raw/alienvault/` and `raw/virustotal/` prefixes).
+
 ### Data Processing Pipeline
 A cloud-native pipeline will normalize and enrich the raw intelligence data, getting it ready for analysis.
 
@@ -52,6 +57,8 @@ I'm planning to use technologies like these:
 ## Current State & Next Steps
 
 This repository contains the architectural plans and design concepts for the platform. I'm working to implement proof-of-concept modules for the key components, starting with the data collection and processing pipeline.
+
+**Update:** The `osint_collector` Google Cloud Function for collecting data from AlienVault OTX and VirusTotal (IP reports) has been implemented and deployed. Raw data is being saved to Google Cloud Storage.
 
 This is an ongoing project meant to demonstrate cloud security concepts and explore the potential of AI/ML in predictive threat intelligence.
 
@@ -120,21 +127,14 @@ OK (skipped=2)
 
 The `OK` at the end confirms that the tests I wrote passed their checks. The print messages show the function attempting steps like processing indicators and writing data using the mocked clients. That "Errors inserting rows..." message just shows the mocked BigQuery client was called, which is exactly what I want to verify in the test—the tests check *what* data was sent to the mock.
 
-The summary line showing `skipped=2` is also expected, which I looked into.
+The summary line showing `skipped=2` is also expected. These skipped tests (`test_collect_from_alienvault_live` and `test_collect_from_virustotal_live` in `tests/test_osint_collector.py`) are designed for live API testing and require credentials/network access, so they are correctly skipped during standard unit test runs focused on isolated logic.
 
-### Investigation of Skipped Tests
-
-When I first ran `python -m unittest discover tests`, I saw the `OK (skipped=2)` message and wanted to know what was being skipped. Here's how I tracked it down:
-
-1. **Initial Check:** First, I looked through the `tests/test_threat_normalizer.py` file to see if there were any `@unittest.skip` decorators in the tests I'd written. There weren't any, so the skipped tests had to be somewhere else.
-
-2. **Verbose Execution:** I ran the test discovery with the verbose flag (`python -m unittest discover -v tests`) to get more details.
-
-3. **Identification:** The verbose output showed the skipped tests as `test_collect_from_alienvault_live` and `test_collect_from_virustotal_live`, both located in `tests/test_osint_collector.py`.
-
-4. **Reason:** The skip messages indicated these are "Live API test, requires credentials and network."
-
-So, mystery solved! The two skipped tests are for the OSINT data collection part, not the normalization function I've been focusing on. They're meant to be skipped during normal unit testing because they need live API keys and network access, which isn't ideal for quick, isolated tests. That `skipped=2` message is expected and not a sign of a problem here.
+### OSINT Collector Testing
+The `osint_collector` function was tested manually through:
+1. Local execution using `functions-framework` (run in the foreground to view logs/errors).
+2. Triggering via `curl` locally.
+3. Verifying output files in Google Cloud Storage.
+4. Deploying to Cloud Functions and testing via Pub/Sub trigger, checking Cloud Function logs and GCS output.
 
 ## Getting Started
 
@@ -146,12 +146,34 @@ The `/docs` folder contains detailed architectural diagrams and design documents
 
 Deployment uses Terraform Cloud for managing infrastructure and Google Cloud Build for deploying the Cloud Function code.
 
+### OSINT Collector Deployment (`osint_collector`)
+
+The `osint_collector` function is deployed as a Google Cloud Function (Gen 2).
+
+- **Deployment Command:** Uses `gcloud functions deploy ...` (see command history or documentation for exact flags).
+- **Trigger:** Pub/Sub topic (e.g., `osint-collection-trigger`).
+- **Required APIs:** Cloud Functions, Cloud Build, Eventarc, Pub/Sub, Cloud Storage.
+- **Required Environment Variables:** See the section below.
+
+### Environment Variables
+
+The following environment variables are required for the project components:
+
+**`osint_collector` Function:**
+- `OTX_API_KEY`: Your AlienVault OTX API key.
+- `VT_API_KEY`: Your VirusTotal API key.
+- `GCS_RAW_BUCKET`: The name of the Google Cloud Storage bucket where raw collected data will be saved (e.g., `your-gcs-bucket-name`).
+
+*(Add variables for other components like `threat_normalizer` as they are implemented)*
+
 ### Project Structure
 
 - `main.py`: Contains the Cloud Function entry point (`normalize_threat_data`).
 - `src/functions/data_processing/threat_normalizer.py`: Main logic, including GCS/BigQuery interaction and specific format handling (currently within this file).
 - `utils.py`: Helper functions (e.g., GCS/BigQuery interaction, timestamping).
 - `requirements.txt`: Python dependencies.
+- `src/functions/osint_collector/main.py`: Cloud Function entry point (`collect_osint_data`), logic for fetching data from AlienVault/VirusTotal and saving to GCS.
+- `src/functions/osint_collector/requirements.txt`: Python dependencies for the collector (`google-cloud-storage`, `requests`, `functions-framework`, `python-dotenv`).
 
 ## License
 
