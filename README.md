@@ -1,53 +1,53 @@
 # Predictive Threat Intelligence Platform for Cloud Vulnerabilities
 
-I'm excited to share this project with you, which aims to create a proactive threat intelligence platform for cloud environments. The goal is to move beyond reactive security approaches and predict emerging threats before they become widespread attacks.
+I'm excited to share this project with you, which aims to create a proactive threat intelligence platform for cloud environments. My goal is to move beyond just reacting to security issues and explore ways to predict emerging threats before they hit.
 
 ## Project Vision
 
-As I see it, the modern cloud security landscape requires more than just reaction to known threats. This platform concept is designed to leverage machine learning and data analysis to identify patterns in threat data that could indicate emerging vulnerabilities and attack vectors.
+I believe that staying secure in the cloud today means being predictive, not just reactive. I'm designing this platform to use machine learning and data analysis to spot patterns in threat data—patterns that might point to the next big vulnerability or attack vector *before* it happens.
 
-Traditional threat platforms are primarily reactive, and this project explores approaches to shift that paradigm toward predictive capabilities. I believe this is crucial for staying ahead of threats in today's fast-paced cloud environment.
+Most threat platforms react after the fact. With this project, I'm exploring how to shift that towards prediction. It feels essential for keeping up with the speed of cloud threats.
 
 ## Conceptual Approach
 
-The platform's design explores several key capabilities:
+I'm designing the platform with a few key capabilities in mind:
 
 - Aggregating and normalizing data from diverse threat intelligence sources
 - Using NLP techniques to extract insights from unstructured text in security advisories
 - Applying time series analysis to identify trends in vulnerability disclosures and exploits
 - Implementing machine learning to predict which vulnerabilities may be targeted
 
-This approach would enable security teams to prioritize their efforts based on predicted threat likelihood rather than just historical data. I'm eager to see how this can improve security postures in cloud environments.
+My hope is that this approach will help security teams prioritize based on what's likely to happen next, not just what's happened already. I'm interested to see how this could strengthen cloud security.
 
 ## Proposed Architecture
 
-The platform design is built around these major components:
+The platform design includes these main parts:
 
 ### Data Ingestion Layer
-A conceptual system for collecting data from various threat intelligence sources including open-source feeds (AlienVault OTX, VirusTotal), vendor security advisories, research publications, and security blogs.
+This layer will collect data from various threat intelligence sources, including open-source feeds (like AlienVault OTX, VirusTotal), vendor security advisories, research papers, and security blogs.
 
 ### Data Processing Pipeline
-A design for normalizing and enriching raw intelligence data through a cloud-native pipeline into formats suitable for analysis.
+A cloud-native pipeline will normalize and enrich the raw intelligence data, getting it ready for analysis.
 
 ### ML Analysis Engine
-The architectural concept for implementing various machine learning approaches:
+This is where the core analysis happens, using techniques like:
 - NLP processing to extract meaningful insights from unstructured text
 - Time series analysis for identifying patterns in threat data
 - Classification models for predicting vulnerability exploitation likelihood
 
 ### Visualization & Insights
-A dashboard concept for presenting predicted threats and recommended mitigations in an actionable format.
+A dashboard (likely using Grafana) will display the predicted threats and potential mitigations clearly.
 
 ## Potential Technologies
 
-The design considers modern cloud-native technologies:
+I'm planning to use technologies like these:
 
 - Google Cloud Platform (GCP) infrastructure
-- Cloud Storage for data lake capabilities
+- Cloud Storage for the data lake
 - BigQuery for data warehousing and analysis
-- Vertex AI for machine learning capabilities
-- Terraform for infrastructure as code
-- Grafana for visualization dashboards
+- Vertex AI for the machine learning parts
+- Terraform for managing the infrastructure as code
+- Grafana for the visualization dashboard
 
 ## Current State & Next Steps
 
@@ -61,14 +61,13 @@ Through this project, I'm working to develop and demonstrate:
 
 1. Cloud-native security architecture design
 2. Data engineering for security intelligence
-3. Applied machine learning for cybersecurity
+3. Applying machine learning to cybersecurity problems
 4. Infrastructure as code for security systems
 5. Effective visualization of complex security data
 
 ## Development & Testing
 
-### Testing the Threat Normalizer
-
+### Testing
 I've set up unit tests for the `threat_normalizer` function, which you can find in `src/functions/data_processing/threat_normalizer.py`. The goal of these tests is to make sure the data normalization logic works correctly for the different threat intelligence sources I'm using.
 
 #### Setup
@@ -81,7 +80,7 @@ The tests are written using Python's standard `unittest` framework and the `unit
 
 - **Datetime (`datetime.datetime`):** I mock this to get a consistent timestamp (for the `processed_at` field) in the tests, making it easier to check the output.
 
-Inside the test file, `tests/test_threat_normalizer.py`, I've included sample JSON data that looks like the typical input we would get from AlienVault and VirusTotal.
+Inside `tests/test_threat_normalizer.py`, I've included sample JSON data that mimics typical input from AlienVault and VirusTotal.
 
 #### Running the Tests
 
@@ -91,9 +90,9 @@ To run these tests yourself, open a terminal, go to the main project directory (
 python -m unittest discover tests
 ```
 
-#### Current Results
+#### Test Output Example
 
-When you run the tests, you'll see output that looks something like this:
+When you run the tests, the output looks something like this (I've snipped some of the noisy mock object details):
 
 ```text
 ss...
@@ -117,21 +116,15 @@ Ran 5 tests in 0.004s
 OK (skipped=2)
 ```
 
-#### Interpretation
+#### Understanding the Output
 
-The `OK` status at the end tells us that the tests I wrote passed all their checks.
+The `OK` at the end confirms that the tests I wrote passed their checks. The print messages show the function attempting steps like processing indicators and writing data using the mocked clients. That "Errors inserting rows..." message just shows the mocked BigQuery client was called, which is exactly what I want to verify in the test—the tests check *what* data was sent to the mock.
 
-The print messages show the steps the function took during the test, like processing indicators and trying to write data using the mocked clients. That "Errors inserting rows..." message is normal in this test setup; it just shows the mocked BigQuery client was called, which is what I want to verify. My tests confirm it was called with the correct data.
-
-The summary line "Ran 5 tests ... OK (skipped=2)" indicates that out of 5 discovered tests, 3 ran successfully and 2 were skipped. I've added new tests for error handling scenarios:
-
-- **Missing Input Files:** Tests handling when the input GCS file doesn't exist.
-- **Invalid JSON:** Ensures the function handles files containing malformed JSON gracefully.
-- **Missing Fields:** Validates behavior when input JSON is valid but lacks expected fields.
+The summary line showing `skipped=2` is also expected, which I looked into.
 
 ### Investigation of Skipped Tests
 
-When I ran `python -m unittest discover tests`, the output consistently reported `OK (skipped=2)`. I was curious about which tests were being skipped and why, so I did a bit of digging:
+When I first ran `python -m unittest discover tests`, I saw the `OK (skipped=2)` message and wanted to know what was being skipped. Here's how I tracked it down:
 
 1. **Initial Check:** First, I looked through the `tests/test_threat_normalizer.py` file to see if there were any `@unittest.skip` decorators in the tests I'd written. There weren't any, so the skipped tests had to be somewhere else.
 
@@ -141,7 +134,7 @@ When I ran `python -m unittest discover tests`, the output consistently reported
 
 4. **Reason:** The skip messages indicated these are "Live API test, requires credentials and network."
 
-Mystery solved! The two skipped tests are related to the OSINT data collection module, not the normalization module I was working on. They're intentionally skipped during standard unit testing since they require live API credentials and network access. This is standard practice to ensure unit tests remain fast and isolated. So the `skipped=2` message is expected behavior for this test suite, not a problem with my code.
+So, mystery solved! The two skipped tests are for the OSINT data collection part, not the normalization function I've been focusing on. They're meant to be skipped during normal unit testing because they need live API keys and network access, which isn't ideal for quick, isolated tests. That `skipped=2` message is expected and not a sign of a problem here.
 
 ## Getting Started
 
@@ -156,13 +149,9 @@ Deployment uses Terraform Cloud for managing infrastructure and Google Cloud Bui
 ### Project Structure
 
 - `main.py`: Contains the Cloud Function entry point (`normalize_threat_data`).
-- `normalizers.py`: Logic for handling specific threat feed formats.
+- `src/functions/data_processing/threat_normalizer.py`: Main logic, including GCS/BigQuery interaction and specific format handling (currently within this file).
 - `utils.py`: Helper functions (e.g., GCS/BigQuery interaction, timestamping).
 - `requirements.txt`: Python dependencies.
-
-### Function Configuration
-
-Please refer to the `/docs` folder for detailed configuration instructions.
 
 ## License
 
