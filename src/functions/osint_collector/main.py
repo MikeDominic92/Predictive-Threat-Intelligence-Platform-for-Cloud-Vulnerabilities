@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import functions_framework
+import time
 from datetime import datetime, timedelta
 from google.cloud import storage
 from dotenv import load_dotenv
@@ -19,6 +20,9 @@ ALIENVAULT_API_URL = "https://otx.alienvault.com/api/v1/pulses/subscribed"
 # Define GCS paths
 GCS_AV_PREFIX = "raw/alienvault"
 GCS_VT_PREFIX = "raw/virustotal" # New: Define VirusTotal prefix
+# VirusTotal Config
+VT_API_URL_BASE = "https://www.virustotal.com/api/v3"
+VT_REQUEST_DELAY_SECONDS = 1 # Delay between VT API calls
 
 # --- Helper Functions ---
 
@@ -94,20 +98,41 @@ def collect_alienvault_pulses(api_key, since_datetime):
 
 
 def collect_virustotal_data(api_key):
-    """Placeholder function to collect data from VirusTotal."""
+    """Collects data from VirusTotal API (v3) for specific indicators."""
     print("Collecting VirusTotal data...")
     if not api_key or api_key == "YOUR_VT_API_KEY_HERE":
         print("Error: VT_API_KEY environment variable not set or is placeholder.")
-        return None # Or return appropriate structure
+        return [] # Return empty list on error
 
-    # --- TODO: Implement VirusTotal API fetching logic ---
-    # Example: Fetch reports for specific indicators, or a feed?
-    # For now, just return placeholder data or None
-    print("VirusTotal collection not yet implemented.")
-    vt_data = {"placeholder": "vt_data", "timestamp": datetime.now().isoformat()}
-    # --- End TODO ---
+    headers = {"x-apikey": api_key}
+    # Example: Query reports for a predefined list of IP addresses
+    test_ips = ["8.8.8.8", "1.1.1.1"] # Replace/extend later
+    collected_reports = []
 
-    return vt_data
+    print(f"Querying VirusTotal for {len(test_ips)} IP addresses...")
+    for ip in test_ips:
+        endpoint = f"{VT_API_URL_BASE}/ip_addresses/{ip}"
+        try:
+            print(f"  Fetching report for {ip}...")
+            response = requests.get(endpoint, headers=headers, timeout=20)
+            response.raise_for_status() # Check for HTTP errors
+            report = response.json()
+            collected_reports.append(report)
+            print(f"    Successfully fetched report for {ip}.")
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching VirusTotal report for {ip}: {e}")
+            # Decide how to handle errors: skip, add error marker, etc.
+            # For now, we just print and continue
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON response from VirusTotal for {ip}: {e}")
+
+        # Add delay to respect potential API rate limits
+        print(f"Waiting {VT_REQUEST_DELAY_SECONDS}s before next VT request...")
+        time.sleep(VT_REQUEST_DELAY_SECONDS)
+
+    print(f"Finished fetching VirusTotal reports. Collected: {len(collected_reports)}")
+    return collected_reports
 
 
 # --- Main Cloud Function ---
@@ -134,8 +159,8 @@ def collect_osint_data(cloud_event):
     # --- Collect VirusTotal Data ---
     virustotal_data = collect_virustotal_data(VT_API_KEY)
     if virustotal_data: # Only save if data was collected
-        # Decide on a filename structure for VT data
-        vt_filename = f"{today_str}-vt_placeholder.json" # Example filename
+        # Update filename for VT IP reports
+        vt_filename = f"{today_str}-vt_ip_reports.json"
         save_to_gcs(GCS_RAW_BUCKET, GCS_VT_PREFIX, vt_filename, virustotal_data)
     else:
         print("Skipping GCS save for VirusTotal due to collection errors or no data.")
