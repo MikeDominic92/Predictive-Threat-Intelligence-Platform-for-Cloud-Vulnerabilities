@@ -251,6 +251,66 @@ class TestThreatNormalizer(unittest.TestCase):
 
         print("test_normalize_threat_data_file_not_found finished.")
 
+    @patch('src.functions.data_processing.threat_normalizer.storage.Client')
+    @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
+    def test_normalize_threat_data_invalid_json(self, mock_bigquery_client, mock_storage_client):
+        """Test handling when the input GCS file contains invalid JSON."""
+        print("\nRunning test_normalize_threat_data_invalid_json...")
+
+        # --- Mock GCS ---
+        mock_storage_instance = mock_storage_client.return_value
+        mock_read_blob = MagicMock()
+        mock_read_blob.exists.return_value = True # File exists
+        # Simulate reading invalid JSON content
+        mock_read_blob.download_as_string.return_value = b"this is not valid json" 
+        mock_bucket = MagicMock()
+        mock_bucket.blob.return_value = mock_read_blob
+        mock_storage_instance.get_bucket.return_value = mock_bucket
+
+        # --- Mock BigQuery (should not be called) ---
+        mock_bq_instance = mock_bigquery_client.return_value
+
+        # --- Test Data ---
+        test_bucket_name = "test-threat-bucket"
+        test_file_name = "raw/bad_json/file.json"
+        mock_event = {'bucket': test_bucket_name, 'name': test_file_name}
+        mock_context = MagicMock()
+
+        # --- Execute Function ---
+        # We expect the read_file_from_gcs to catch the JSONDecodeError and return None
+        # The main function should handle None gracefully and not raise an error
+        try:
+            threat_normalizer.normalize_threat_data(mock_event, mock_context)
+        except Exception as e:
+            self.fail(f"normalize_threat_data raised an unexpected exception: {e}")
+
+        # --- Assertions ---
+        # 1. Check GCS Read calls
+        mock_storage_instance.get_bucket.assert_called_with(test_bucket_name)
+        mock_bucket.blob.assert_called_with(test_file_name)
+        mock_read_blob.exists.assert_called_once()
+        mock_read_blob.download_as_string.assert_called_once() # Download was attempted
+
+        # 2. Check BigQuery (should NOT be called as read failed)
+        mock_bq_instance.insert_rows_json.assert_not_called()
+
+        # 3. Check GCS Write (Archiving should NOT happen if read failed)
+        # Find the mock for the *archive* blob to check upload_from_string
+        # This assumes bucket.blob() is called twice: once for read, once for archive.
+        # Find the call that is NOT for the input file name.
+        archive_blob_mock = None
+        for call in mock_bucket.blob.call_args_list:
+            if call.args[0] != test_file_name:
+                archive_blob_mock = mock_bucket.blob.return_value # Need a better way if side_effect is used
+                break 
+        # If archive_blob_mock is still None or if it's the same mock as read_blob, 
+        # it implies archive wasn't attempted or mocked correctly for this case.
+        # A safer check might be on the number of calls to blob(), expecting only 1.
+        self.assertEqual(mock_bucket.blob.call_count, 1, "Expected blob() to be called only once for reading when JSON is invalid.")
+        # If blob() was only called once, upload_from_string was definitely not called on an archive blob.
+
+        print("test_normalize_threat_data_invalid_json finished.")
+
     # TODO: Add more tests:
     # - test_normalize_threat_data_skip_non_raw
     # - test_normalize_threat_data_invalid_path
