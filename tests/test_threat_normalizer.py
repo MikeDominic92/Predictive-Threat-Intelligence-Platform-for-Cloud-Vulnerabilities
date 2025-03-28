@@ -115,6 +115,14 @@ class TestThreatNormalizer(unittest.TestCase):
         self.assertEqual(written_data[0]['confidence_score'], 0.6)
         self.assertEqual(written_data[0]['severity'], 'high')
 
+        # Check the second record
+        self.assertEqual(written_data[1]['source'], 'alienvault')
+        self.assertEqual(written_data[1]['type'], 'domain') # Check type
+        self.assertEqual(written_data[1]['value'], 'malicious-domain.com') # Check value
+        self.assertEqual(written_data[1]['processed_at'], FIXED_ISO_TIMESTAMP) # Check timestamp
+        self.assertEqual(written_data[1]['confidence_score'], 0.6) # Assuming same confidence logic as first record
+        self.assertEqual(written_data[1]['severity'], 'high') # Assuming same severity logic as first record
+
         # 3. Check GCS Write (Normalized Data Archiving)
         expected_normalized_path = f"processed/alienvault/2024-01-17-pulse.json"
         # Check write blob was requested with correct path - REMOVED assertion on blob() due to side_effect list usage
@@ -191,6 +199,52 @@ class TestThreatNormalizer(unittest.TestCase):
         written_gcs_content = mock_write_blob.upload_from_string.call_args[0][0]
         self.assertEqual(json.loads(written_gcs_content), written_data)
 
+    @patch('builtins.print') # Patch print to check error logging
+    @patch('src.functions.data_processing.threat_normalizer.storage.Client')
+    @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
+    def test_normalize_threat_data_invalid_json(self, mock_bigquery_client, mock_storage_client, mock_print):
+        """Test handling when the input GCS file contains invalid JSON."""
+        # --- Mock GCS ---
+        mock_storage_instance = mock_storage_client.return_value
+        mock_read_blob = MagicMock()
+        # Simulate invalid JSON content
+        mock_read_blob.download_as_string.return_value = b"this is not { valid json"
+        mock_write_blob = MagicMock() # Mock for potential archive path
+        mock_bucket = MagicMock()
+        # Need side_effect for read blob and potential archive blob (though archive shouldn't happen)
+        mock_bucket.blob.side_effect = [mock_read_blob, mock_write_blob]
+        mock_storage_instance.get_bucket.return_value = mock_bucket
+
+        # --- Mock BigQuery ---
+        mock_bq_instance = mock_bigquery_client.return_value
+
+        # --- Test Data ---
+        test_bucket_name = "test-threat-bucket"
+        test_file_name = "raw/bad_json/file.json"
+        mock_event = {'bucket': test_bucket_name, 'name': test_file_name}
+        mock_context = MagicMock()
+
+        # --- Execute Function ---
+        threat_normalizer.normalize_threat_data(mock_event, mock_context)
+
+        # --- Assertions ---
+        # 1. Check GCS Read was attempted
+        mock_storage_instance.get_bucket.assert_called_with(test_bucket_name)
+        mock_bucket.blob.assert_any_call(test_file_name) # Called for reading
+        mock_read_blob.download_as_string.assert_called_once()
+
+        # 2. Check BigQuery Write was NOT attempted
+        mock_bq_instance.insert_rows_json.assert_not_called()
+
+        # 3. Check GCS Write (Archiving) was NOT attempted
+        # Check that the second blob mock (for writing) was NOT used
+        mock_write_blob.upload_from_string.assert_not_called()
+        # Check that blob was only called once (for reading)
+        self.assertEqual(mock_bucket.blob.call_count, 1)
+
+        # 4. Check for error print message (assuming the function prints on JSON decode error)
+        mock_print.assert_any_call(f"Error processing file {test_file_name}: Invalid JSON content.")
+
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
     def test_normalize_threat_data_file_not_found(self, mock_bigquery_client, mock_storage_client):
@@ -241,7 +295,7 @@ class TestThreatNormalizer(unittest.TestCase):
 
     @patch('src.functions.data_processing.threat_normalizer.storage.Client')
     @patch('src.functions.data_processing.threat_normalizer.bigquery.Client')
-    def test_normalize_threat_data_invalid_json(self, mock_bigquery_client, mock_storage_client):
+    def test_normalize_threat_data_invalid_json_original(self, mock_bigquery_client, mock_storage_client):
         """Test handling when the input GCS file contains invalid JSON."""
         # --- Mock GCS ---
         mock_storage_instance = mock_storage_client.return_value

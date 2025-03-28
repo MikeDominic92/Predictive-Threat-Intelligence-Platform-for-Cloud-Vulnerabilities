@@ -76,6 +76,9 @@ def read_file_from_gcs(bucket_name, file_name):
             print(f"File not found in GCS: gs://{bucket_name}/{file_name}")
             return None
             
+    except json.JSONDecodeError:
+        print(f"Error processing file {file_name}: Invalid JSON content.")
+        return None
     except Exception as e:
         print(f"Error reading from GCS: {str(e)}")
         return None
