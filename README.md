@@ -12,10 +12,12 @@ Most threat platforms react after the fact. With this project, I'm exploring how
 
 I'm designing the platform with a few key capabilities in mind:
 
+
 - Aggregating and normalizing data from diverse threat intelligence sources
 - Using NLP techniques to extract insights from unstructured text in security advisories
 - Applying time series analysis to identify trends in vulnerability disclosures and exploits
 - Implementing machine learning to predict which vulnerabilities may be targeted
+
 
 My hope is that this approach will help security teams prioritize based on what's likely to happen next, not just what's happened already. I'm interested to see how this could strengthen cloud security.
 
@@ -23,7 +25,9 @@ My hope is that this approach will help security teams prioritize based on what'
 
 The platform design includes these main parts:
 
+
 ### Data Ingestion Layer
+
 This layer will collect data from various threat intelligence sources, including open-source feeds (like AlienVault OTX, VirusTotal), vendor security advisories, research papers, and security blogs.
 
 **Implementation:** The initial data collection is handled by the `osint_collector` Google Cloud Function (`src/functions/osint_collector`), which currently gathers:
@@ -35,7 +39,9 @@ Data is saved in JSON format to Google Cloud Storage (`raw/alienvault/` and `raw
 A cloud-native pipeline will normalize and enrich the raw intelligence data, getting it ready for analysis.
 
 ### ML Analysis Engine
+
 This is where the core analysis happens, using techniques like:
+
 - NLP processing to extract meaningful insights from unstructured text
 - Time series analysis for identifying patterns in threat data
 - Classification models for predicting vulnerability exploitation likelihood
@@ -46,6 +52,7 @@ A dashboard (likely using Grafana) will display the predicted threats and potent
 ## Potential Technologies
 
 I'm planning to use technologies like these:
+
 
 - Google Cloud Platform (GCP) infrastructure
 - Cloud Storage for the data lake
@@ -60,6 +67,7 @@ This repository contains the architectural plans, design concepts, and working c
 
 **Updates:**
 
+
 1. **Data Collection:** The `osint_collector` Google Cloud Function for collecting data from AlienVault OTX and VirusTotal (IP reports) has been implemented and deployed. Raw data is being saved to Google Cloud Storage.
 
 2. **Data Normalization:** I've built a data normalization pipeline that processes the raw threat data into a standardized format and stores it in BigQuery for analysis.
@@ -71,6 +79,8 @@ This repository contains the architectural plans, design concepts, and working c
    - Trains a RandomForest classifier to predict threat risk levels
    - Saves the trained model and preprocessor to Google Cloud Storage
    - Makes predictions on new threat indicators
+
+4. **Risk Prediction API:** I've added an API layer that exposes the ML model through HTTP requests. This feels like a critical component for a real-world tool - being able to integrate threat predictions with other security systems. The API is built to deploy as a Cloud Function but can run locally for testing too.
 
 I was especially excited to complete the ML component as it's the heart of what makes this platform predictive rather than just reactive.
 
@@ -169,6 +179,35 @@ python src/predict_indicator_risk.py --indicator-type url --source alienvault --
 
 The model evaluates the indicator and returns a risk prediction (HIGH or LOW) along with a confidence score.
 
+### Using the Risk Prediction API
+
+If you want to integrate the risk predictions with other systems, I've built an API that makes this pretty straightforward:
+
+#### Local Testing
+
+To try it out locally:
+
+```bash
+# Start the API server locally
+python local_api_server.py
+
+# In another terminal, test with example requests
+python test_api_client.py
+```
+
+The API accepts POST requests with JSON like this:
+
+```json
+{
+  "indicator_type": "domain",
+  "value": "suspicious-domain.com",
+  "source": "alienvault",
+  "tags": ["suspicious", "phishing"]
+}
+```
+
+And returns prediction results with confidence scores and feature importance - pretty neat for understanding why the model made its decision.
+
 ### Training the ML Model
 
 If you want to retrain the model with fresh data:
@@ -189,16 +228,43 @@ Deployment uses Terraform Cloud for managing infrastructure and Google Cloud Bui
 
 The `osint_collector` function is deployed as a Google Cloud Function (Gen 2).
 
+
+
 - **Deployment Command:** Uses `gcloud functions deploy ...` (see command history or documentation for exact flags).
 - **Trigger:** Pub/Sub topic (e.g., `osint-collection-trigger`).
 - **Required APIs:** Cloud Functions, Cloud Build, Eventarc, Pub/Sub, Cloud Storage.
 - **Required Environment Variables:** See the section below.
 
+
+### Risk Prediction API Deployment (`predict-indicator-risk`)
+
+I've made deploying the API pretty simple with a PowerShell script (`deploy_risk_prediction_api.ps1`).
+
+
+
+- **How it works:** The API runs as a Google Cloud Function that loads the ML model and makes predictions on demand.
+- **Trigger:** HTTP requests - so you can call it from anywhere.
+- **Configuration:** I set it up with 512MB memory and a 180s timeout since model loading takes a bit of time.
+- **Testing:** The script includes helpful output examples once deployment succeeds.
+
+
+Once deployed, you can call it with a simple HTTP request:
+
+```bash
+curl -X POST https://{REGION}-{PROJECT_ID}.cloudfunctions.net/predict-indicator-risk \
+  -H "Content-Type: application/json" \
+  -d '{"indicator_type":"domain","source":"alienvault","value":"example.com","tags":["suspicious"]}'
+```
+
+I found that adding this API layer really makes the whole system feel more complete and usable in a real security workflow.
+
 ### Environment Variables
 
 The following environment variables are required for the project components:
 
+
 **`osint_collector` Function:**
+
 - `OTX_API_KEY`: Your AlienVault OTX API key.
 - `VT_API_KEY`: Your VirusTotal API key.
 - `GCS_RAW_BUCKET`: The name of the Google Cloud Storage bucket where raw collected data will be saved.
