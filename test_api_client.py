@@ -1,7 +1,19 @@
 import requests
 import json
+import os
+import uuid
+from dotenv import load_dotenv
 
-def test_api(base_url="http://localhost:8080"):
+# Load environment variables
+load_dotenv()
+
+def test_api(base_url="http://localhost:8080", api_key=None):
+    # Get API key from parameter, env var, or use the default development key
+    if not api_key:
+        # Same default key as in local_api_server.py
+        DEV_API_KEY = "pti-dev-9f4e8d3c-5a7b-4321-9b8a-c7e5d6f3a2b1"
+        api_key = os.environ.get('API_KEY', DEV_API_KEY)
+    
     # Test data
     test_cases = [
         {
@@ -19,11 +31,13 @@ def test_api(base_url="http://localhost:8080"):
     ]
     
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-API-Key": api_key
     }
     
     print("Testing Risk Prediction API\n")
-    print(f"API URL: {base_url}\n")
+    print(f"API URL: {base_url}")
+    print(f"Using API Key: {api_key[:8]}...\n")
     
     for i, test_case in enumerate(test_cases):
         print(f"Test Case {i+1}: {test_case['indicator_type']} from {test_case['source']}")
@@ -52,4 +66,11 @@ def test_api(base_url="http://localhost:8080"):
         print("\n" + "-"*50 + "\n")
 
 if __name__ == "__main__":
-    test_api()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Test the Risk Prediction API with authentication')
+    parser.add_argument('--url', type=str, default="http://localhost:8080", help='API URL')
+    parser.add_argument('--api-key', type=str, help='API Key for authentication')
+    
+    args = parser.parse_args()
+    test_api(base_url=args.url, api_key=args.api_key)

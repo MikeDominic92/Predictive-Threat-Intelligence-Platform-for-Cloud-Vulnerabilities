@@ -3,6 +3,8 @@ import logging
 import json
 import sys
 import pandas as pd
+import hashlib
+import hmac
 from google.cloud import storage
 import functions_framework
 from dotenv import load_dotenv
@@ -156,6 +158,40 @@ def predict_risk(indicator_data):
         logger.error(f"Error during prediction: {e}")
         raise RuntimeError(f"Prediction failed: {str(e)}")
 
+def validate_api_key(request):
+    """
+    Validates the API key from the request headers.
+    
+    Args:
+        request (flask.Request): HTTP request object
+        
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    # Development API key - NEVER use in production
+    DEV_API_KEY = "pti-dev-9f4e8d3c-5a7b-4321-9b8a-c7e5d6f3a2b1"
+    
+    # Get API key from environment variable or use development key as fallback
+    expected_api_key = os.environ.get('API_KEY')
+    
+    # If no API key is configured, use the development key but log a warning
+    if not expected_api_key:
+        expected_api_key = DEV_API_KEY
+        logger.warning("No API_KEY environment variable set - using development API key")
+    
+    # Get API key from request header
+    request_api_key = request.headers.get('X-API-Key')
+    
+    if not request_api_key:
+        return False, "Missing API Key in request headers"
+    
+    # Constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(request_api_key, expected_api_key):
+        logger.warning(f"Invalid API key attempt")
+        return False, "Invalid API Key"
+    
+    return True, ""
+
 @functions_framework.http
 def predict_indicator_risk(request):
     """
@@ -175,7 +211,7 @@ def predict_indicator_risk(request):
         headers = {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST',
-            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
             'Access-Control-Max-Age': '3600'
         }
         return ('', 204, headers)
@@ -183,6 +219,11 @@ def predict_indicator_risk(request):
     headers = {
         'Access-Control-Allow-Origin': '*'
     }
+    
+    # Validate API key
+    is_valid_key, key_error = validate_api_key(request)
+    if not is_valid_key:
+        return (json.dumps({"error": key_error}), 401, headers)
     
     try:
         # Parse the request
