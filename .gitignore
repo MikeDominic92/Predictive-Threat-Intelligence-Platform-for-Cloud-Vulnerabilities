@@ -104,6 +104,14 @@ ENV/
 env.bak/
 venv.bak/
 
+# Sample data files
+sample_*.json
+sample_*.csv
+sample_*.txt
+
+# Test execution logs
+test_run.log
+
 # Spyder project settings
 .spyderproject
 .spyproject

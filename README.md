@@ -56,9 +56,23 @@ I'm planning to use technologies like these:
 
 ## Current State & Next Steps
 
-This repository contains the architectural plans and design concepts for the platform. I'm working to implement proof-of-concept modules for the key components, starting with the data collection and processing pipeline.
+This repository contains the architectural plans, design concepts, and working components for the platform. I've implemented several key modules, and I'm continuing to build out the functionality.
 
-**Update:** The `osint_collector` Google Cloud Function for collecting data from AlienVault OTX and VirusTotal (IP reports) has been implemented and deployed. Raw data is being saved to Google Cloud Storage.
+**Updates:**
+
+1. **Data Collection:** The `osint_collector` Google Cloud Function for collecting data from AlienVault OTX and VirusTotal (IP reports) has been implemented and deployed. Raw data is being saved to Google Cloud Storage.
+
+2. **Data Normalization:** I've built a data normalization pipeline that processes the raw threat data into a standardized format and stores it in BigQuery for analysis.
+
+3. **ML Risk Prediction Model:** I've implemented a machine learning pipeline that:
+   - Loads normalized threat data from BigQuery
+   - Creates a target variable based on threat tags
+   - Preprocesses features using one-hot encoding
+   - Trains a RandomForest classifier to predict threat risk levels
+   - Saves the trained model and preprocessor to Google Cloud Storage
+   - Makes predictions on new threat indicators
+
+I was especially excited to complete the ML component as it's the heart of what makes this platform predictive rather than just reactive.
 
 This is an ongoing project meant to demonstrate cloud security concepts and explore the potential of AI/ML in predictive threat intelligence.
 
@@ -140,7 +154,32 @@ The `osint_collector` function was tested manually through:
 
 The `/docs` folder contains detailed architectural diagrams and design documents that outline the platform concept.
 
-*Note: This is a portfolio project to showcase architectural thinking and cloud security concepts. Implementation is ongoing.*
+### Using the ML Risk Prediction
+
+I've created a simple command-line tool for demonstrating the ML risk prediction capabilities. After setting up your environment:
+
+```bash
+# Predict risk for a specific indicator
+python src/predict_indicator_risk.py --indicator-type domain --source alienvault --tags suspicious
+
+# Try with different indicator types and sources
+python src/predict_indicator_risk.py --indicator-type ip --source virustotal --tags malicious botnet
+python src/predict_indicator_risk.py --indicator-type url --source alienvault --tags phishing
+```
+
+The model evaluates the indicator and returns a risk prediction (HIGH or LOW) along with a confidence score.
+
+### Training the ML Model
+
+If you want to retrain the model with fresh data:
+
+```bash
+python src/train_risk_model.py
+```
+
+This will fetch the latest data from BigQuery, train a new model, and save it to GCS.
+
+*Note: This is a portfolio project showcasing cloud security, data engineering, and ML concepts. While many components are fully functional, it's designed as a demonstration rather than a production-ready solution.*
 
 ## Deployment
 
@@ -162,18 +201,36 @@ The following environment variables are required for the project components:
 **`osint_collector` Function:**
 - `OTX_API_KEY`: Your AlienVault OTX API key.
 - `VT_API_KEY`: Your VirusTotal API key.
-- `GCS_RAW_BUCKET`: The name of the Google Cloud Storage bucket where raw collected data will be saved (e.g., `your-gcs-bucket-name`).
+- `GCS_RAW_BUCKET`: The name of the Google Cloud Storage bucket where raw collected data will be saved.
 
-*(Add variables for other components like `threat_normalizer` as they are implemented)*
+**Data Processing & ML Pipeline:**
+- `PROJECT_ID`: Your Google Cloud Project ID.
+- `DATASET_ID`: Your BigQuery Dataset ID (e.g., `threat_intelligence`).
+- `TABLE_ID`: Your BigQuery Table ID (e.g., `normalized_threats`).
+- `GCS_BUCKET_NAME`: The name of your GCS bucket for storing processed data and ML models.
 
 ### Project Structure
 
-- `main.py`: Contains the Cloud Function entry point (`normalize_threat_data`).
-- `src/functions/data_processing/threat_normalizer.py`: Main logic, including GCS/BigQuery interaction and specific format handling (currently within this file).
-- `utils.py`: Helper functions (e.g., GCS/BigQuery interaction, timestamping).
-- `requirements.txt`: Python dependencies.
-- `src/functions/osint_collector/main.py`: Cloud Function entry point (`collect_osint_data`), logic for fetching data from AlienVault/VirusTotal and saving to GCS.
-- `src/functions/osint_collector/requirements.txt`: Python dependencies for the collector (`google-cloud-storage`, `requests`, `functions-framework`, `python-dotenv`).
+**OSINT Collection:**
+- `src/functions/osint_collector/main.py`: Cloud Function entry point (`collect_osint_data`), fetches data from threat sources.
+- `src/functions/osint_collector/requirements.txt`: Python dependencies for the collector.
+
+**Data Processing:**
+- `src/functions/data_processing/threat_normalizer.py`: Orchestrates data normalization from raw files to BigQuery.
+- `src/functions/data_processing/utils.py`: Helper functions for GCS & BigQuery operations.
+- `src/functions/data_processing/normalizers/`: Source-specific normalization logic.
+
+**Machine Learning:**
+- `src/ml_engine/`: Contains the ML pipeline components:
+  - `config.py`: Configuration settings for the ML pipeline.
+  - `feature_engineering.py`: Creates target variables and preprocessing features.
+  - `predictor.py`: Trains models and makes predictions.
+  - `utils.py`: Helper functions for ML operations.
+- `src/train_risk_model.py`: Main script for training the risk prediction model.
+- `src/predict_indicator_risk.py`: CLI tool for getting risk predictions on new indicators.
+
+**Dependencies:**
+- `requirements.txt`: Core Python dependencies including scikit-learn, pandas, matplotlib and GCP libraries.
 
 ## License
 
