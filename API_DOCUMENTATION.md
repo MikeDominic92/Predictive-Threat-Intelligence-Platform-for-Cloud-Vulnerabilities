@@ -8,7 +8,7 @@ The Risk Prediction API requires API key authentication to ensure only authorize
 
 Include your API key in all requests using the `X-API-Key` HTTP header:
 
-```
+```http
 X-API-Key: your-api-key-here
 ```
 
@@ -16,7 +16,7 @@ X-API-Key: your-api-key-here
 
 For local development and testing, the API uses a fixed development API key:
 
-```
+```text
 pti-dev-9f4e8d3c-5a7b-4321-9b8a-c7e5d6f3a2b1
 ```
 
@@ -51,10 +51,12 @@ print(str(uuid.uuid4()))
 ```
 
 Required fields:
+
 - `indicator_type`: Type of the threat indicator (domain, ip, url, etc.)
 - `source`: Data source of the indicator (alienvault, virustotal, etc.)
 
 Optional fields:
+
 - `value`: The actual indicator value
 - `tags`: List of tags associated with the indicator
 
