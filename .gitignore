@@ -108,9 +108,16 @@ venv.bak/
 sample_*.json
 sample_*.csv
 sample_*.txt
+*_sample.json
+*sample*.json
+test_*.json
 
 # Test execution logs
 test_run.log
+test_output.txt
+*_results.log
+*_results.json
+env_check.json
 
 # Spyder project settings
 .spyderproject
