@@ -12,7 +12,6 @@ Most threat platforms react after the fact. With this project, I'm exploring how
 
 I'm designing the platform with a few key capabilities in mind:
 
-
 - Aggregating and normalizing data from diverse threat intelligence sources
 - Using NLP techniques to extract insights from unstructured text in security advisories
 - Applying time series analysis to identify trends in vulnerability disclosures and exploits
@@ -25,18 +24,33 @@ My hope is that this approach will help security teams prioritize based on what'
 
 The platform design includes these main parts:
 
-
 ### Data Ingestion Layer
 
-This layer will collect data from various threat intelligence sources, including open-source feeds (like AlienVault OTX, VirusTotal), vendor security advisories, research papers, and security blogs.
+This layer collects data from various threat intelligence sources, including open-source feeds and cloud provider security services.
 
-**Implementation:** The initial data collection is handled by the `osint_collector` Google Cloud Function (`src/functions/osint_collector`), which currently gathers:
-  - Pulses from AlienVault OTX.
-  - IP Address reports from VirusTotal.
-Data is saved in JSON format to Google Cloud Storage (`raw/alienvault/` and `raw/virustotal/` prefixes).
+**Implementation:** The data collection is handled by the `osint_collector` Google Cloud Function (`src/functions/osint_collector`), which gathers:
+  - Pulses from AlienVault OTX
+  - IP Address reports from VirusTotal
+  - Security Command Center findings from Google Cloud
+  - Asset Inventory data from Google Cloud
+
+Data is saved in JSON format to Google Cloud Storage with source-specific prefixes (`raw/alienvault/`, `raw/virustotal/`, `raw/scc/`, and `raw/asset/`).
 
 ### Data Processing Pipeline
-A cloud-native pipeline will normalize and enrich the raw intelligence data, getting it ready for analysis.
+
+A cloud-native pipeline normalizes and enriches the raw intelligence data, preparing it for analysis.
+
+**Implementation:** The data processing pipeline is implemented in `src/functions/data_processing/` and includes:
+
+- **Threat Normalizer** (`threat_normalizer.py`): A Cloud Function that processes incoming raw data from GCS, normalizes it through source-specific normalizers, and writes the results to BigQuery.
+
+- **Source-Specific Normalizers**:
+  - `normalizers/alienvault.py`: Normalizes AlienVault OTX pulse data
+  - `normalizers/virustotal.py`: Normalizes VirusTotal IP reports
+  - `normalizers/gcp_scc.py`: Normalizes Google Cloud Security Command Center findings
+  - `normalizers/gcp_asset.py`: Normalizes Google Cloud Asset Inventory data
+
+- **Common Schema**: All normalizers convert their source data to a common schema with fields like `indicator_type`, `indicator_value`, `confidence_score`, `severity`, etc.
 
 ### ML Analysis Engine
 
@@ -53,7 +67,6 @@ A dashboard (likely using Grafana) will display the predicted threats and potent
 
 I'm planning to use technologies like these:
 
-
 - Google Cloud Platform (GCP) infrastructure
 - Cloud Storage for the data lake
 - BigQuery for data warehousing and analysis
@@ -67,10 +80,9 @@ This repository contains the architectural plans, design concepts, and working c
 
 **Updates:**
 
+1. **Data Collection:** The `osint_collector` Google Cloud Function for collecting data from AlienVault OTX, VirusTotal (IP reports), Google Cloud Security Command Center findings, and Google Cloud Asset Inventory has been implemented. Raw data is saved to Google Cloud Storage.
 
-1. **Data Collection:** The `osint_collector` Google Cloud Function for collecting data from AlienVault OTX and VirusTotal (IP reports) has been implemented and deployed. Raw data is being saved to Google Cloud Storage.
-
-2. **Data Normalization:** I've built a data normalization pipeline that processes the raw threat data into a standardized format and stores it in BigQuery for analysis.
+2. **Data Normalization:** A complete data normalization pipeline processes the raw threat data from all sources into a standardized format and stores it in BigQuery for analysis. Source-specific normalizers handle the unique aspects of each data source while ensuring consistent output format.
 
 3. **ML Risk Prediction Model:** I've implemented a machine learning pipeline that:
    - Loads normalized threat data from BigQuery
@@ -80,7 +92,14 @@ This repository contains the architectural plans, design concepts, and working c
    - Saves the trained model and preprocessor to Google Cloud Storage
    - Makes predictions on new threat indicators
 
-4. **Risk Prediction API:** I've added an API layer that exposes the ML model through HTTP requests. This feels like a critical component for a real-world tool - being able to integrate threat predictions with other security systems. The API is built to deploy as a Cloud Function but can run locally for testing too.
+4. **Risk Correlation Engine:** I've implemented a dedicated risk correlation engine that:
+   - Correlates GCP Security Command Center findings with Asset Inventory data
+   - Calculates risk scores based on finding severity and asset characteristics
+   - Generates tailored mitigation recommendations
+   - Stores correlation results in BigQuery for further analysis
+   - Runs as a Cloud Function for automated and regular risk assessment
+
+5. **Risk Prediction API:** I've added an API layer that exposes the ML model through HTTP requests. This feels like a critical component for a real-world tool - being able to integrate threat predictions with other security systems. The API is built to deploy as a Cloud Function but can run locally for testing too.
 
 I was especially excited to complete the ML component as it's the heart of what makes this platform predictive rather than just reactive.
 
@@ -96,9 +115,245 @@ Through this project, I'm working to develop and demonstrate:
 4. Infrastructure as code for security systems
 5. Effective visualization of complex security data
 
+## System Architecture
+
+The platform consists of several key components that work together to create a complete threat intelligence pipeline:
+
+### 1. OSINT Data Collection
+The `osint_collector` Cloud Function automatically collects threat data from:
+- **AlienVault OTX API**: For pulse data about emerging threats
+- **VirusTotal API**: For detailed information about suspicious IPs, domains, and files
+- **Google Cloud Security Command Center**: For findings related to security risks in your GCP environment
+- **Google Cloud Asset Inventory**: For details about cloud assets to correlate with security findings
+
+Data is collected on a schedule and stored in Google Cloud Storage for processing.
+
+### 2. Threat Data Normalization
+The `threat_normalizer` Cloud Function:
+- Triggered when new data arrives in Cloud Storage
+- Processes and normalizes raw data from different sources into a consistent format
+- Handles different schema structures from AlienVault, VirusTotal, GCP Security Command Center, and GCP Asset Inventory
+- Writes normalized data to BigQuery for analysis
+
+### 3. Risk Correlation Engine
+The `risk_correlation` Cloud Function:
+- Correlates security findings from GCP Security Command Center with asset inventory data
+- Calculates risk scores based on finding severity and asset characteristics
+- Generates tailored mitigation recommendations for each security finding
+- Stores correlation results in BigQuery for further analysis and reporting
+
+### 4. Machine Learning Components (Future)
+- Time series analysis to identify threat patterns
+- NLP processing for unstructured advisory data
+- Vulnerability prediction models
+
+## GCP Security Integration
+
+The platform integrates directly with Google Cloud Platform security services to provide comprehensive threat detection and risk assessment for cloud environments.
+
+### Security Command Center Integration
+
+The platform leverages Google Cloud Security Command Center (SCC) to collect security findings across your entire GCP organization:
+
+- **Comprehensive Coverage**: Collects findings from Security Health Analytics, Event Threat Detection, Container Threat Detection, and Web Security Scanner
+- **Finding Enrichment**: Enhances SCC findings with additional context about affected resources
+- **Historical Analysis**: Maintains a historical record of all findings for trend analysis
+- **Organization-wide View**: Provides a holistic view of security posture across all projects in your GCP organization
+
+### Asset Inventory Integration
+
+The platform integrates with Google Cloud Asset Inventory to maintain an up-to-date inventory of all cloud resources:
+
+- **Complete Resource Tracking**: Monitors compute instances, storage buckets, databases, IAM policies, and network resources
+- **Resource Relationships**: Maps relationships between resources to understand potential attack paths
+- **Configuration Monitoring**: Tracks configuration changes that could impact security posture
+- **Critical Asset Tagging**: Identifies and tags business-critical assets for prioritized risk assessment
+
+### Risk Correlation Process
+
+The Risk Correlation Engine performs the following steps to assess risk in your GCP environment:
+
+1. **Data Collection**: Retrieves the latest security findings from SCC and asset data from Asset Inventory
+2. **Finding Correlation**: Maps security findings to affected assets and identifies related resources
+3. **Risk Scoring**: Calculates a risk score based on finding severity, asset criticality, and potential impact
+4. **Mitigation Recommendation**: Generates specific mitigation steps based on the finding type and affected resource
+5. **Result Storage**: Stores correlation results in BigQuery for further analysis and reporting
+
+This integration provides automated, continuous risk assessment of your GCP environment based on real-time security telemetry.
+
+## Deployment Guide
+
+### Prerequisites
+
+1. **Google Cloud Platform Account**
+   - Project with billing enabled
+   - Required APIs: Cloud Functions, Cloud Storage, BigQuery, Cloud Scheduler
+
+2. **API Keys**
+   - AlienVault OTX API key ([Register here](https://otx.alienvault.com/))
+   - VirusTotal API key ([Register here](https://www.virustotal.com/gui/join-us))
+
+3. **Local Environment**
+   - Python 3.9+
+   - Google Cloud SDK installed and configured
+   - Required Python packages: `pip install -r requirements.txt`
+
+### Setup Steps
+
+1. **Configure Environment**
+   - Create a `.env` file in the project root with the following variables:
+
+   ```bash
+   PROJECT_ID=your-gcp-project-id
+   DATASET_ID=threat_intelligence
+   TABLE_ID=normalized_threats
+   GCS_BUCKET_NAME=your-bucket-name
+   ALIENVAULT_API_KEY=your-alienvault-api-key
+   VIRUSTOTAL_API_KEY=your-virustotal-api-key
+   GCP_ORGANIZATION_ID=your-gcp-organization-id
+   ```
+
+2. **Create Google Cloud Resources**
+
+   ```bash
+   # Create GCS bucket
+   gsutil mb -l us-central1 gs://your-bucket-name
+   
+   # Create BigQuery dataset and tables
+   bq mk --dataset threat_intelligence
+   bq mk --table threat_intelligence.normalized_threats ./schema/bigquery_schema.json
+   bq mk --table threat_intelligence.risk_correlations ./schema/risk_correlation_schema.json
+   ```
+
+
+3. **Deploy Cloud Functions**
+   - Use the provided deployment script to deploy all components:
+
+   ```bash
+   # Deploy all cloud functions
+   python deploy_functions.py
+   ```
+
+   - Or you can deploy individual components using the specific deployment scripts:
+
+   ```bash
+   # Deploy OSINT collector
+   ./deploy_osint_collector.bat
+   
+   # Deploy threat normalizer
+   ./deploy_threat_normalizer.bat
+   
+   # Deploy risk correlation engine
+   ./deploy_risk_correlation.bat
+   ```
+
+### End-to-End Testing
+
+Run the end-to-end test to verify the entire pipeline:
+
+```bash
+python -m src.tests.end_to_end_test
+```
+
+This test will:
+1. Validate all environment variables
+2. Test API connectivity
+3. Collect sample data from threat intelligence sources
+4. Upload to Cloud Storage
+5. Process and normalize the data
+6. Insert into BigQuery
+
+#### Testing Individual Components
+
+1. **Test OSINT Data Collection**
+
+   ```bash
+   curl -X POST https://<your-region>-<your-project-id>.cloudfunctions.net/osint_collector
+   ```
+
+2. **Test GCP Data Collection**
+   This step is automatically executed as part of the OSINT collector but can be tested individually:
+
+   ```bash
+   curl -X POST https://<your-region>-<your-project-id>.cloudfunctions.net/osint_collector -d '{"sources": ["gcp_scc", "gcp_asset"]}'
+   ```
+
+3. **Test Risk Correlation Engine**
+
+   ```bash
+   curl -X POST https://<your-region>-<your-project-id>.cloudfunctions.net/risk_correlation
+   ```
+
+4. **Verify Data in BigQuery**
+
+   ```sql
+   -- Check normalized threats
+   SELECT * FROM `<your-project-id>.<dataset_id>.normalized_threats` LIMIT 100;
+   
+   -- Check risk correlation results
+   SELECT * FROM `<your-project-id>.<dataset_id>.risk_correlations` LIMIT 100;
+   ```
+
+## Usage Guide
+
+### Data Collection
+
+The OSINT collector runs daily at 2:00 AM (configurable in `deploy_osint_collector.bat`). To manually trigger a collection:
+
+```bash
+gcloud pubsub topics publish trigger-osint-collector --message="Run OSINT collection"
+```
+
+To manually trigger the risk correlation engine:
+
+```bash
+gcloud pubsub topics publish trigger-risk-correlation --message="Run risk correlation"
+```
+
+To manually trigger the GCP data collection:
+
+```bash
+gcloud pubsub topics publish trigger-gcp-collector --message="Run GCP collection"
+```
+
+### Viewing Collected Data
+
+1. **Raw Data in Cloud Storage**
+   - Navigate to your GCS bucket in the Google Cloud Console
+   - Raw data is stored in the following directories:
+     - `raw/alienvault/`: AlienVault OTX pulses
+     - `raw/virustotal/`: VirusTotal IP reports
+     - `raw/scc/`: Google Cloud Security Command Center findings
+     - `raw/asset/`: Google Cloud Asset Inventory data
+
+2. **Normalized Data in BigQuery**
+   - Run queries against the normalized threats table
+   - Example query:
+
+   ```sql
+   SELECT * FROM `your-project.threat_intelligence.normalized_threats`
+   WHERE threat_type = 'malicious_ip'
+   ORDER BY confidence_score DESC
+   LIMIT 100
+   ```
+
+3. **Risk Correlation Results**
+   - View correlation results in the risk_correlations table
+   - Example query:
+
+```sql
+SELECT * FROM `your-project.threat_intelligence.risk_correlations`
+ORDER BY risk_score DESC
+LIMIT 100
+```
+
+### Monitoring
+
+The platform includes Datadog monitoring integration for production environments. For setup instructions, see `docs/datadog_monitoring.md`.
+
 ## Development & Testing
 
-### Testing
+### Local Testing
 I've set up unit tests for the `threat_normalizer` function, which you can find in `src/functions/data_processing/threat_normalizer.py`. The goal of these tests is to make sure the data normalization logic works correctly for the different threat intelligence sources I'm using.
 
 #### Setup
@@ -265,15 +520,17 @@ The following environment variables are required for the project components:
 
 **`osint_collector` Function:**
 
-- `OTX_API_KEY`: Your AlienVault OTX API key.
-- `VT_API_KEY`: Your VirusTotal API key.
-- `GCS_RAW_BUCKET`: The name of the Google Cloud Storage bucket where raw collected data will be saved.
+- `ALIENVAULT_API_KEY`: Your AlienVault OTX API key.
+- `VIRUSTOTAL_API_KEY`: Your VirusTotal API key (optional).
+- `GCS_BUCKET_NAME`: The name of the Google Cloud Storage bucket where raw and processed data will be stored.
 
 **Data Processing & ML Pipeline:**
 - `PROJECT_ID`: Your Google Cloud Project ID.
 - `DATASET_ID`: Your BigQuery Dataset ID (e.g., `threat_intelligence`).
 - `TABLE_ID`: Your BigQuery Table ID (e.g., `normalized_threats`).
-- `GCS_BUCKET_NAME`: The name of your GCS bucket for storing processed data and ML models.
+
+**Important Security Note:** 
+Never commit files containing actual API keys to version control. Use environment variables or secure secret management services to handle sensitive credentials.
 
 ### Project Structure
 

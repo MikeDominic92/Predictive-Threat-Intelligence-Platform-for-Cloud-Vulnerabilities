@@ -13,6 +13,7 @@ This document maps our security policies to specific NIST SP 800-53 controls, de
 | `vpc_flow_logs.rego` | compute.googleapis.com/Network | AU-12 (Audit Generation) | The system generates audit records containing information specified in AU-3. | Verifies that VPC Flow Logs are enabled for comprehensive network traffic logging. |
 | `cloud_armor_waf.rego` | compute.googleapis.com/BackendService | SC-7 (Boundary Protection) | Implements subnetworks for publicly accessible system components. | Checks that internet-facing services use Cloud Armor WAF protection. |
 | `kms_rotation.rego` | cloudkms.googleapis.com/CryptoKey | SC-12 (Cryptographic Key Establishment and Management) | Establishes and manages cryptographic keys. | Verifies that KMS keys have automatic rotation enabled. |
+| `ChainGuard Integration` | Various with container images | SA-10 (Developer Configuration Management) | The organization requires the developer to maintain the integrity of the systems or components. | Verifies container image signatures and attestations using Sigstore/Cosign to ensure software supply chain integrity. |
 
 ## Implementing Additional Controls
 
