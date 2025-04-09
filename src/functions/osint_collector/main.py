@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from google.cloud import storage
 from dotenv import load_dotenv
 from functions.data_acquisition.gcp_scc import collect_scc_findings
+from functions.data_acquisition.gcp_asset import collect_asset_inventory
 
 # Load environment variables from .env file for local development
 # Explicitly load .env.local, searching upwards from the current file directory
@@ -31,6 +32,7 @@ GCS_VT_PREFIX = "raw/virustotal" # New: Define VirusTotal prefix
 GCS_NVD_PREFIX = "raw/nvd" # New: Define NVD prefix
 GCS_RSS_PREFIX = "raw/rss" # New: Define RSS prefix
 GCS_SCC_PREFIX = "raw/scc" # New: Define SCC prefix
+GCS_ASSET_PREFIX = "raw/asset" # New: Define Asset Inventory prefix
 # VirusTotal Config
 VT_REQUEST_DELAY_SECONDS = 1 # Delay between VT API calls
 
@@ -409,6 +411,34 @@ def collect_osint_data(request):
         
     save_to_gcs(GCS_BUCKET_NAME, GCS_SCC_PREFIX, scc_filename, scc_data)
     print(f"Saved SCC test file: {scc_filename}")
+
+
+    # --- Collect GCP Asset Inventory ---
+    asset_data = {"assets": []} # Initialize asset_data
+    if GCP_ORGANIZATION_ID:
+        # Example: Collect compute instances and storage buckets
+        compute_storage_types = [
+            'compute.googleapis.com/Instance',
+            'storage.googleapis.com/Bucket'
+        ]
+        asset_data = collect_asset_inventory(
+            GCP_ORGANIZATION_ID, 
+            asset_types=compute_storage_types,
+            max_results=100
+        )
+    else:
+        print("Skipping Asset Inventory collection: GCP_ORGANIZATION_ID not set.")
+
+    # Always save a test file with a unique timestamp to verify function execution
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')  # Re-generate timestamp to be slightly different
+    asset_filename = f"assets_{timestamp}.json"
+    
+    # Create a minimal payload if no data was collected
+    if not asset_data or not isinstance(asset_data, dict) or 'assets' not in asset_data:
+        asset_data = {"assets": [{"name": "test-asset", "asset_type": "Minimal Asset Sample"}]}
+        
+    save_to_gcs(GCS_BUCKET_NAME, GCS_ASSET_PREFIX, asset_filename, asset_data)
+    print(f"Saved Asset Inventory test file: {asset_filename}")
 
 
     # --- TODO: Add calls to other OSINT source collectors ---

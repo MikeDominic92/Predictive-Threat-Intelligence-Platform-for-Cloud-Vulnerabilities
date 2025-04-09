@@ -3,7 +3,8 @@ requests
 feedparser
 functions-framework
 python-dotenv
-google-cloud-securitycenter # <-- Add SCC client library
+google-cloud-securitycenter # <-- SCC client library
+google-cloud-asset # <-- Asset Inventory client library
 scikit-learn
 pandas
 db-dtypes
