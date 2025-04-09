@@ -7,7 +7,7 @@ from dotenv import find_dotenv
 
 # Import local modules
 from . import utils
-from .normalizers import alienvault, virustotal
+from .normalizers import alienvault, virustotal, gcp_scc, gcp_asset
 
 # Configure logging
 logging.basicConfig(level=logging.INFO) # Set default log level
@@ -68,6 +68,14 @@ def normalize_threat_data(event, context):
             # Wrap the single report dictionary into a list for the normalizer
             normalized_data = virustotal.normalize_virustotal_data([content])
             logging.info(f"Normalization resulted in {len(normalized_data)} items.") # Added logging
+        elif source == 'scc':
+            logging.info(f"Calling normalize_gcp_scc_data for {file_name}")
+            normalized_data = gcp_scc.normalize_gcp_scc_data(content)
+            logging.info(f"Normalization resulted in {len(normalized_data)} items.")
+        elif source == 'asset':
+            logging.info(f"Calling normalize_gcp_asset_data for {file_name}")
+            normalized_data = gcp_asset.normalize_gcp_asset_data(content)
+            logging.info(f"Normalization resulted in {len(normalized_data)} items.")
         else:
             logging.warning(f"Unknown data source type: {source}")
 
@@ -93,3 +101,52 @@ def normalize_threat_data(event, context):
         # Decide if you want to raise the exception or return a failure indicator
         # raise e # Option 1: Propagate the error
         return False # Option 2: Indicate failure without stopping potential further processing
+
+# --- Local Testing ---
+if __name__ == "__main__":
+    # Load environment variables from .env file
+    load_dotenv(find_dotenv())
+    
+    # Check for required environment variables
+    project_id = os.environ.get("PROJECT_ID")
+    dataset_id = os.environ.get("DATASET_ID")
+    table_id = os.environ.get("TABLE_ID")
+    bucket_name = os.environ.get("GCS_BUCKET_NAME")
+    
+    print("Environment variables check:")
+    print(f"- PROJECT_ID: {'SET' if project_id else 'MISSING'}")
+    print(f"- DATASET_ID: {'SET' if dataset_id else 'MISSING'}")
+    print(f"- TABLE_ID: {'SET' if table_id else 'MISSING'}")
+    print(f"- GCS_BUCKET_NAME: {'SET' if bucket_name else 'MISSING'}")
+    
+    if not all([project_id, dataset_id, table_id, bucket_name]):
+        print("\nERROR: Missing required environment variables. Please set all required variables and try again.")
+        print("Hint: Create a .env file in the project root or set them directly in your environment.")
+        exit(1)
+    
+    # Set up test files for different data sources
+    test_files = {
+        'alienvault': "raw/alienvault/sample.json",
+        'virustotal': "raw/virustotal/sample.json",
+        'scc': "raw/scc/sample.json",
+        'asset': "raw/asset/sample.json"
+    }
+    
+    # Choose which source to test
+    test_source = 'alienvault'  # Change this to 'scc' or 'asset' to test GCP normalizers
+    test_file = test_files[test_source]
+    
+    # Simulate a GCS event
+    mock_event = {
+        'bucket': bucket_name,
+        'name': test_file,
+        'metageneration': '1',
+    }
+    
+    print(f"\nStarting normalization test with file: {test_file} (Source: {test_source})")
+    print(f"Target BigQuery table: {project_id}.{dataset_id}.{table_id}")
+    
+    # Run the normalization function
+    result = normalize_threat_data(mock_event, None)
+    
+    print(f"\nNormalization result: {'SUCCESS' if result else 'FAILED'}")
