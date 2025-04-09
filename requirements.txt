@@ -1,6 +1,9 @@
 google-cloud-storage
-google-cloud-bigquery
+requests
+feedparser
+functions-framework
 python-dotenv
+google-cloud-securitycenter # <-- Add SCC client library
 scikit-learn
 pandas
 db-dtypes
